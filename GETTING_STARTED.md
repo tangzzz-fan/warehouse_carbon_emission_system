@@ -77,36 +77,160 @@ ls -la
 # 应该看到: backend/ frontend/ data-service/ docker-compose.yml
 ```
 
-## 环境配置
+## Docker 环境配置
 
-### 1. 数据库服务启动
+### 环境说明
 
-使用 Docker Compose 启动 PostgreSQL 和 Redis：
+项目提供了三套 Docker 配置：
 
+1. **开发环境** (`docker-compose.yml` / `docker-compose.dev.yml`)
+   - 支持热重载
+   - 包含调试端口
+   - 挂载源代码目录
+   - 详细日志输出
+
+2. **生产环境** (`docker-compose.prod.yml`)
+   - 多阶段构建优化
+   - Nginx 反向代理
+   - 健康检查
+   - 资源限制
+   - 安全配置
+
+3. **基础服务** (`docker-compose.yml`)
+   - 仅包含数据库和缓存
+   - 用于本地开发时单独启动服务
+
+### 开发环境部署
+
+#### 方式一：完整 Docker 开发环境
+
+```bash
+# 使用开发环境配置启动所有服务
+docker-compose -f docker-compose.dev.yml up --build
+
+# 后台运行
+docker-compose -f docker-compose.dev.yml up -d --build
+
+# 查看服务状态
+docker-compose -f docker-compose.dev.yml ps
+
+# 查看日志
+docker-compose -f docker-compose.dev.yml logs -f
+
+# 停止服务
+docker-compose -f docker-compose.dev.yml down
+```
+
+#### 方式二：混合开发环境 (推荐)
+
+```bash
+# 1. 启动基础服务 (数据库 + 缓存)
+docker-compose up -d postgres redis
+
+# 2. 本地启动后端服务
+cd backend
+npm install
+npm run start:dev
+
+# 3. 本地启动前端服务 (新终端)
+cd frontend
+npm install
+npm start
+
+# 4. 本地启动数据服务 (新终端)
+cd data-service
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt -r requirements-dev.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 生产环境部署
+
+#### 1. 环境变量配置
+
+```bash
+# 复制生产环境配置模板
+cp env.prod.example .env.prod
+
+# 编辑生产环境配置
+nano .env.prod
+```
+
+生产环境配置示例：
+```env
+# 数据库配置
+DB_USERNAME=postgres
+DB_PASSWORD=your-strong-password-here
+DB_NAME=carbon_emission_db
+
+# Redis 配置
+REDIS_PASSWORD=your-redis-password-here
+
+# JWT 配置
+JWT_SECRET=your-super-secret-jwt-key-for-production
+
+# 前端配置
+FRONTEND_URL=https://yourdomain.com
+REACT_APP_API_URL=https://yourdomain.com/api/v1
+```
+
+#### 2. 启动生产环境
+
+```bash
+# 使用生产环境配置
+docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# 查看服务状态
+docker-compose -f docker-compose.prod.yml ps
+
+# 查看日志
+docker-compose -f docker-compose.prod.yml logs -f
+
+# 健康检查
+curl http://localhost/health
+curl http://localhost/api/v1/health
+```
+
+## 环境配置详解
+
+### 1. 数据库服务配置
+
+#### 开发环境
 ```bash
 # 启动数据库服务
 docker-compose up -d postgres redis
 
-# 验证服务状态
-docker-compose ps
-# 应该看到 postgres 和 redis 服务状态为 Up
+# 连接到数据库
+docker exec -it carbon-emission-postgres-0527 psql -U postgres -d carbon_emission_db
+
+# 查看数据库状态
+docker-compose logs postgres
 ```
 
-### 2. 环境变量配置
-
-#### 后端环境配置
+#### 生产环境
 ```bash
-# 进入后端目录
+# 数据库备份
+docker exec carbon-emission-postgres-prod-0527 pg_dump -U postgres carbon_emission_db > backup.sql
+
+# 数据库恢复
+docker exec -i carbon-emission-postgres-prod-0527 psql -U postgres carbon_emission_db < backup.sql
+```
+
+### 2. 后端服务配置
+
+#### 开发环境配置
+```bash
 cd backend
 
 # 复制环境变量模板
-cp .env.example .env
+cp env.example .env
 
-# 编辑环境变量 (使用你喜欢的编辑器)
+# 编辑环境变量
 nano .env
 ```
 
-`.env` 文件内容示例：
+`.env` 文件内容：
 ```env
 # 应用配置
 NODE_ENV=development
@@ -124,174 +248,96 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # JWT配置
-JWT_SECRET=your-super-secret-jwt-key
+JWT_SECRET=dev-carbon-emission-secret-key
 JWT_EXPIRES_IN=7d
 
 # 前端URL
 FRONTEND_URL=http://localhost:3000
 ```
 
-#### 前端环境配置
+#### 调试配置
 ```bash
-# 进入前端目录
-cd ../frontend
+# 启动调试模式
+npm run start:debug
+
+# 使用 VS Code 调试
+# 在 .vscode/launch.json 中配置调试器
+```
+
+### 3. 前端服务配置
+
+#### 开发环境
+```bash
+cd frontend
 
 # 创建环境变量文件
-echo "REACT_APP_API_URL=http://localhost:3001" > .env
+echo "REACT_APP_API_URL=http://localhost:3001/api/v1" > .env.local
+echo "REACT_APP_ENV=development" >> .env.local
 ```
 
-#### 数据服务环境配置
+#### 生产构建
 ```bash
-# 进入数据服务目录
-cd ../data-service
+# 构建生产版本
+npm run build
 
-# 复制环境变量模板
-cp .env.example .env
-
-# 编辑环境变量
-nano .env
+# 预览构建结果
+npx serve -s build
 ```
 
-`.env` 文件内容示例：
-```env
-# 应用配置
-ENVIRONMENT=development
-PORT=8000
+### 4. 数据服务配置
 
-# 数据库配置
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/carbon_emission_db
-
-# Redis配置
-REDIS_URL=redis://localhost:6379
-
-# API配置
-API_V1_STR=/api/v1
-PROJECT_NAME=Carbon Emission Data Service
-```
-
-## 安装依赖
-
-### 1. 后端依赖安装
+#### 开发环境
 ```bash
-cd backend
-
-# 安装 npm 依赖
-npm install
-
-# 验证安装
-npm list --depth=0
-```
-
-### 2. 前端依赖安装
-```bash
-cd ../frontend
-
-# 安装 npm 依赖
-npm install
-
-# 验证安装
-npm list --depth=0
-```
-
-### 3. 数据服务依赖安装
-```bash
-cd ../data-service
+cd data-service
 
 # 创建虚拟环境
 python -m venv venv
-
-# 激活虚拟环境
-# macOS/Linux:
-source venv/bin/activate
-# Windows:
-# venv\Scripts\activate
-
-# 安装 Python 依赖
-pip install -r requirements.txt
-
-# 验证安装
-pip list
-```
-
-## 数据库初始化
-
-### 1. 创建数据库
-```bash
-# 连接到 PostgreSQL
-docker exec -it linkprojects_postgres_1 psql -U postgres
-
-# 在 psql 中执行
-CREATE DATABASE carbon_emission_db;
-\q
-```
-
-### 2. 运行数据库迁移
-```bash
-cd backend
-
-# 运行数据库迁移 (如果有)
-npm run migration:run
-
-# 或者同步数据库结构
-npm run typeorm:sync
-```
-
-## 启动服务
-
-### 方式一：分别启动各服务
-
-#### 1. 启动后端服务
-```bash
-cd backend
-
-# 开发模式启动
-npm run start:dev
-
-# 服务启动成功后会显示:
-# 🚀 应用已启动，运行在端口 3001
-# 📚 API文档地址: http://localhost:3001/api/docs
-```
-
-#### 2. 启动前端服务
-```bash
-# 新开终端窗口
-cd frontend
-
-# 启动开发服务器
-npm start
-
-# 服务启动成功后会自动打开浏览器: http://localhost:3000
-```
-
-#### 3. 启动数据服务
-```bash
-# 新开终端窗口
-cd data-service
-
-# 激活虚拟环境
 source venv/bin/activate
 
-# 启动 FastAPI 服务
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# 安装依赖
+pip install -r requirements.txt -r requirements-dev.txt
 
-# 服务启动成功后可访问: http://localhost:8000/docs
+# 创建环境变量文件
+cat > .env << EOF
+ENVIRONMENT=development
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/carbon_emission_db
+REDIS_URL=redis://localhost:6379
+DEBUG=true
+HOST=0.0.0.0
+PORT=8000
+EOF
 ```
 
-### 方式二：使用 Docker Compose 启动所有服务
-
+#### 代码质量检查
 ```bash
-# 在项目根目录
-docker-compose up --build
+# 代码格式化
+black .
+isort .
 
-# 后台运行
-docker-compose up -d --build
+# 代码检查
+flake8 .
+mypy .
 
-# 查看服务状态
-docker-compose ps
-
-# 查看日志
-docker-compose logs -f
+# 运行测试
+pytest
 ```
+
+## 服务访问地址
+
+### 开发环境
+- **前端应用**: http://localhost:3000
+- **后端API**: http://localhost:3001
+- **后端API文档**: http://localhost:3001/api/docs
+- **数据服务**: http://localhost:8000
+- **数据服务文档**: http://localhost:8000/docs
+- **PostgreSQL**: localhost:5432
+- **Redis**: localhost:6379
+
+### 生产环境
+- **应用入口**: http://localhost (或您的域名)
+- **API接口**: http://localhost/api/v1
+- **数据服务**: http://localhost/data-api
+- **健康检查**: http://localhost/health
 
 ## 验证安装
 
@@ -313,14 +359,29 @@ curl http://localhost:3001/api/v1/dashboard/overview
 # 测试数据服务 API
 curl http://localhost:8000/health
 
-# 测试前端代理
+# 测试前端代理 (开发环境)
 curl http://localhost:3000/api/v1/dashboard/overview
+
+# 测试生产环境
+curl http://localhost/api/v1/dashboard/overview
+curl http://localhost/data-api/health
 ```
 
-### 3. 访问 Web 界面
-- **前端应用**: http://localhost:3000
-- **后端API文档**: http://localhost:3001/api/docs
-- **数据服务文档**: http://localhost:8000/docs
+### 3. 数据库连接测试
+```bash
+# 连接 PostgreSQL
+docker exec -it carbon-emission-postgres-0527 psql -U postgres -d carbon_emission_db
+
+# 在 psql 中执行
+\dt  # 查看表
+SELECT version();  # 查看版本
+\q   # 退出
+
+# 连接 Redis
+docker exec -it carbon-emission-redis-0527 redis-cli
+ping  # 应返回 PONG
+exit
+```
 
 ## 开发工具配置
 
@@ -335,12 +396,52 @@ curl http://localhost:3000/api/v1/dashboard/overview
     "ms-python.python",
     "ms-python.flake8",
     "esbenp.prettier-vscode",
-    "dbaeumer.vscode-eslint"
+    "dbaeumer.vscode-eslint",
+    "ms-vscode.vscode-docker"
   ]
 }
 ```
 
-### 2. 代码格式化配置
+### 2. 调试配置
+
+#### VS Code 调试配置 (.vscode/launch.json)
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Backend",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "address": "localhost",
+      "localRoot": "${workspaceFolder}/backend",
+      "remoteRoot": "/app",
+      "protocol": "inspector"
+    },
+    {
+      "name": "Debug Frontend",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"]
+    },
+    {
+      "name": "Debug Data Service",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/data-service/main.py",
+      "cwd": "${workspaceFolder}/data-service",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/data-service"
+      }
+    }
+  ]
+}
+```
+
+### 3. 代码格式化配置
 
 #### 前端和后端 (Prettier)
 ```json
@@ -355,10 +456,12 @@ curl http://localhost:3000/api/v1/dashboard/overview
 ```
 
 #### Python (Black)
-```bash
-cd data-service
-pip install black
-black . --line-length 88
+```toml
+# pyproject.toml
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
 ```
 
 ## 常见问题解决
@@ -370,6 +473,9 @@ lsof -i :3001
 
 # 杀死进程
 kill -9 <PID>
+
+# 或者修改端口配置
+# 在 docker-compose.yml 中修改端口映射
 ```
 
 ### 2. 数据库连接失败
@@ -382,6 +488,10 @@ docker-compose restart postgres
 
 # 查看数据库日志
 docker-compose logs postgres
+
+# 检查网络连接
+docker network ls
+docker network inspect linkprojects_carbon-emission-network-0527
 ```
 
 ### 3. 依赖安装失败
@@ -396,6 +506,9 @@ npm install
 # Python 依赖问题
 pip install --upgrade pip
 pip install -r requirements.txt --force-reinstall
+
+# Docker 构建缓存问题
+docker-compose build --no-cache
 ```
 
 ### 4. 前端编译错误
@@ -403,65 +516,52 @@ pip install -r requirements.txt --force-reinstall
 # 清理构建缓存
 rm -rf build/ .eslintcache
 
+# 检查 TypeScript 配置
+npx tsc --noEmit
+
 # 重新启动开发服务器
 npm start
 ```
 
-## 开发模式
+### 5. Docker 相关问题
+```bash
+# 清理 Docker 资源
+docker system prune -a
 
-### 热重载开发
-- **前端**: 修改代码后自动刷新浏览器
-- **后端**: 使用 `npm run start:dev` 自动重启服务
-- **数据服务**: 使用 `--reload` 参数自动重启
+# 重新构建镜像
+docker-compose build --no-cache
 
-### 调试配置
+# 查看容器日志
+docker-compose logs -f [service-name]
 
-#### VS Code 调试配置 (.vscode/launch.json)
-```json
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Debug Backend",
-      "type": "node",
-      "request": "launch",
-      "program": "${workspaceFolder}/backend/src/main.ts",
-      "outFiles": ["${workspaceFolder}/backend/dist/**/*.js"],
-      "runtimeArgs": ["-r", "ts-node/register"]
-    },
-    {
-      "name": "Debug Frontend",
-      "type": "node",
-      "request": "launch",
-      "cwd": "${workspaceFolder}/frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"]
-    }
-  ]
-}
+# 进入容器调试
+docker exec -it [container-name] /bin/sh
 ```
 
-## 生产部署
+## 性能优化
 
-### 1. 构建生产版本
+### 开发环境优化
 ```bash
-# 构建前端
-cd frontend
-npm run build
+# 启用 Docker BuildKit
+export DOCKER_BUILDKIT=1
 
-# 构建后端
-cd ../backend
-npm run build
+# 使用 Docker Compose 并行构建
+docker-compose build --parallel
 
-# 构建数据服务 Docker 镜像
-cd ../data-service
-docker build -t carbon-data-service .
+# 前端热重载优化
+echo "CHOKIDAR_USEPOLLING=true" >> frontend/.env.local
 ```
 
-### 2. 生产环境配置
+### 生产环境优化
 ```bash
-# 使用生产环境配置
-docker-compose -f docker-compose.prod.yml up -d
+# 启用 Nginx 缓存
+# 在 nginx.conf 中配置缓存策略
+
+# 数据库连接池优化
+# 在后端配置中调整连接池大小
+
+# Redis 内存优化
+# 配置 Redis 内存策略
 ```
 
 ## 监控和日志
@@ -475,12 +575,75 @@ docker-compose logs -f data-service
 
 # 本地开发日志
 tail -f backend/logs/application.log
+tail -f data-service/logs/app.log
 ```
 
 ### 性能监控
-- **前端**: 使用浏览器开发者工具
-- **后端**: 查看 API 响应时间
-- **数据库**: 使用 pgAdmin 或命令行工具
+```bash
+# 查看容器资源使用
+docker stats
+
+# 查看系统资源
+htop
+df -h
+free -h
+
+# 数据库性能
+docker exec -it carbon-emission-postgres-0527 psql -U postgres -c "SELECT * FROM pg_stat_activity;"
+```
+
+## 部署脚本
+
+### 开发环境快速启动脚本
+```bash
+#!/bin/bash
+# scripts/dev-start.sh
+
+echo "启动开发环境..."
+
+# 启动基础服务
+docker-compose up -d postgres redis
+
+# 等待服务启动
+sleep 10
+
+# 启动后端
+cd backend && npm run start:dev &
+
+# 启动前端
+cd ../frontend && npm start &
+
+# 启动数据服务
+cd ../data-service && source venv/bin/activate && uvicorn main:app --reload &
+
+echo "所有服务已启动"
+echo "前端: http://localhost:3000"
+echo "后端: http://localhost:3001"
+echo "数据服务: http://localhost:8000"
+```
+
+### 生产环境部署脚本
+```bash
+#!/bin/bash
+# scripts/prod-deploy.sh
+
+echo "部署生产环境..."
+
+# 拉取最新代码
+git pull origin main
+
+# 构建并启动服务
+docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# 等待服务启动
+sleep 30
+
+# 健康检查
+curl -f http://localhost/health || exit 1
+
+echo "生产环境部署完成"
+echo "应用地址: http://localhost"
+```
 
 ## 下一步
 

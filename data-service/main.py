@@ -1,18 +1,13 @@
 """
 冷库物流园区碳排放检测管理系统 - 数据服务
-Python FastAPI 数据分析与处理服务
+Python FastAPI 数据分析与处理服务 - 简化版本
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import uvicorn
-from contextlib import asynccontextmanager
+import os
 import logging
-
-from app.core.config import settings
-from app.api.v1.api import api_router
-from app.core.database import engine, Base
 
 # 配置日志
 logging.basicConfig(
@@ -21,40 +16,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    # 启动时创建数据库表
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("数据服务启动完成")
-    yield
-    # 关闭时清理资源
-    logger.info("数据服务关闭")
-
-
 # 创建FastAPI应用
 app = FastAPI(
     title="冷库碳排放数据服务",
     description="冷库物流园区碳排放检测管理系统的数据分析与处理服务",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc",
-    lifespan=lifespan
+    redoc_url="/redoc"
 )
 
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_HOSTS,
+    allow_origins=["*"],  # 开发环境允许所有来源
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# 注册路由
-app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -63,7 +41,8 @@ async def root():
     return {
         "message": "冷库碳排放数据服务运行正常",
         "version": "1.0.0",
-        "docs": "/docs"
+        "docs": "/docs",
+        "status": "running"
     }
 
 
@@ -72,29 +51,33 @@ async def health_check():
     """健康检查接口"""
     return {
         "status": "healthy",
-        "service": "carbon-emission-data-service"
+        "service": "carbon-emission-data-service",
+        "version": "1.0.0"
     }
 
 
-# 全局异常处理
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"全局异常: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "message": "服务器内部错误",
-            "detail": str(exc) if settings.DEBUG else "Internal server error"
+@app.get("/api/v1/test")
+async def test_endpoint():
+    """测试接口"""
+    return {
+        "message": "数据服务测试接口",
+        "status": "success",
+        "data": {
+            "timestamp": "2024-05-27",
+            "environment": os.getenv("ENVIRONMENT", "development")
         }
-    )
+    }
 
 
 if __name__ == "__main__":
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 8000))
+    debug = os.getenv("DEBUG", "true").lower() == "true"
+    
     uvicorn.run(
         "main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG,
+        host=host,
+        port=port,
+        reload=debug,
         log_level="info"
     ) 

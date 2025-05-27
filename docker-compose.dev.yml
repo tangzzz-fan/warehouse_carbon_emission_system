@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: carbon-emission-postgres-dev-0527
+    environment:
+      POSTGRES_DB: carbon_emission_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - carbon-emission-network-dev-0527
+    restart: unless-stopped
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: carbon-emission-redis-dev-0527
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+    networks:
+      - carbon-emission-network-dev-0527
+    restart: unless-stopped
+
+  # NestJS 后端服务 (开发模式)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: carbon-emission-backend-dev-0527
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: carbon_emission_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev-carbon-emission-secret-key
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+      - "9229:9229" # Node.js 调试端口
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - carbon-emission-network-dev-0527
+    restart: unless-stopped
+    command: npm run start:dev
+
+  # React 前端服务 (开发模式)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: carbon-emission-frontend-dev-0527
+    environment:
+      REACT_APP_API_URL: http://localhost:3001/api/v1
+      REACT_APP_ENV: development
+      CHOKIDAR_USEPOLLING: true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - carbon-emission-network-dev-0527
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  # Python FastAPI 数据服务 (开发模式)
+  data-service:
+    build:
+      context: ./data-service
+      dockerfile: Dockerfile.dev
+    container_name: carbon-emission-data-service-dev-0527
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/carbon_emission_db
+      REDIS_URL: redis://redis:6379
+      DEBUG: true
+      HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data-service:/app
+      - ./data-service/logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - carbon-emission-network-dev-0527
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+
+volumes:
+  postgres_data_dev:
+  redis_data_dev:
+
+
+networks:
+  carbon-emission-network-dev-0527:
+    driver: bridge
